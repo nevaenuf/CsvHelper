@@ -2,6 +2,6 @@ if not exist NuGet mkdir NuGet
 
 del /Q NuGet\*.*
 
-.\src\.nuget\NuGet.exe pack .\src\CsvHelper.nuspec -OutputDirectory NuGet 
+NuGet.exe pack .\src\CsvHelper\CsvHelper.csproj -IncludeReferencedProjects -Build -Prop Configuration=Release -OutputDirectory NuGet 
 
 pause
