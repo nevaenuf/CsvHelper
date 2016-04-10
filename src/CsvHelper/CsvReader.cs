@@ -35,7 +35,7 @@ namespace CsvHelper
 		private ICsvParser parser;
 		private int currentIndex = -1;
 		private bool doneReading;
-		private readonly Dictionary<string, List<int>> namedIndexes = new Dictionary<string, List<int>>();
+		private readonly Dictionary<Header, List<int>> namedIndexes = new Dictionary<Header, List<int>>();
 #if !NET_2_0
 		private readonly Dictionary<Type, Delegate> recordFuncs = new Dictionary<Type, Delegate>();
 #endif
@@ -267,7 +267,7 @@ namespace CsvHelper
 				if( configuration.WillThrowOnMissingField )
 				{
 					var ex = new CsvMissingFieldException( string.Format( "Field at index '{0}' does not exist.", index ) );
-					ExceptionHelper.AddExceptionDataMessage( ex, Parser, typeof( string ), namedIndexes, index, currentRecord );
+					ExceptionHelper.AddExceptionDataMessage( ex, Parser, typeof( string ), namedIndexes.ToDictionary(x=> x.Key.NameBasedOnConfiguration, y => y.Value), index, currentRecord );
 					throw ex;
 				}
 
@@ -554,7 +554,7 @@ namespace CsvHelper
 				if( configuration.WillThrowOnMissingField )
 				{
 					var ex = new CsvMissingFieldException( string.Format( "Field at index '{0}' does not exist.", index ) );
-					ExceptionHelper.AddExceptionDataMessage( ex, Parser, typeof( T ), namedIndexes, index, currentRecord );
+                    ExceptionHelper.AddExceptionDataMessage(ex, Parser, typeof(T), namedIndexes.ToDictionary(x => x.Key.NameBasedOnConfiguration, y => y.Value), index, currentRecord);
 					throw ex;
 				}
 
@@ -882,7 +882,7 @@ namespace CsvHelper
 			}
 			catch( Exception ex )
 			{
-				ExceptionHelper.AddExceptionDataMessage( ex, parser, typeof( T ), namedIndexes, currentIndex, currentRecord );
+                ExceptionHelper.AddExceptionDataMessage(ex, parser, typeof(T), namedIndexes.ToDictionary(x => x.Key.NameBasedOnConfiguration, y => y.Value), currentIndex, currentRecord);
 				throw;
 			}
 			return record;
@@ -905,7 +905,7 @@ namespace CsvHelper
 			}
 			catch( Exception ex )
 			{
-				ExceptionHelper.AddExceptionDataMessage( ex, parser, type, namedIndexes, currentIndex, currentRecord );
+                ExceptionHelper.AddExceptionDataMessage(ex, parser, type, namedIndexes.ToDictionary(x => x.Key.NameBasedOnConfiguration, y => y.Value), currentIndex, currentRecord);
 				throw;
 			}
 
@@ -934,7 +934,7 @@ namespace CsvHelper
 				}
 				catch( Exception ex )
 				{
-					ExceptionHelper.AddExceptionDataMessage( ex, parser, typeof( T ), namedIndexes, currentIndex, currentRecord );
+                    ExceptionHelper.AddExceptionDataMessage(ex, parser, typeof(T), namedIndexes.ToDictionary(x => x.Key.NameBasedOnConfiguration, y => y.Value), currentIndex, currentRecord);
 
 					if( configuration.IgnoreReadingExceptions )
 					{
@@ -977,7 +977,7 @@ namespace CsvHelper
 				}
 				catch( Exception ex )
 				{
-					ExceptionHelper.AddExceptionDataMessage( ex, parser, type, namedIndexes, currentIndex, currentRecord );
+                    ExceptionHelper.AddExceptionDataMessage(ex, parser, type, namedIndexes.ToDictionary(x => x.Key.NameBasedOnConfiguration, y => y.Value), currentIndex, currentRecord);
 
 					if( configuration.IgnoreReadingExceptions )
 					{
@@ -1178,25 +1178,21 @@ namespace CsvHelper
 				throw new CsvReaderException( "There is no header record to determine the index by name." );
 			}
 
-			var compareOptions = !Configuration.IsHeaderCaseSensitive ? CompareOptions.IgnoreCase : CompareOptions.None;
-			string name = null;
+		    var compareOptions = !Configuration.IsHeaderCaseSensitive
+		        ? StringComparison.OrdinalIgnoreCase
+		        : StringComparison.Ordinal;
+
+			Header name = null;
 			foreach( var pair in namedIndexes )
 			{
 				var namedIndex = pair.Key;
-				if( configuration.IgnoreHeaderWhiteSpace )
-				{
-					namedIndex = Regex.Replace( namedIndex, "\\s", string.Empty );
-				}
-				else if( configuration.TrimHeaders && namedIndex != null )
-				{
-					namedIndex = namedIndex.Trim();
-				}
-
+				
 				foreach( var n in names )
 				{
-					if( Configuration.CultureInfo.CompareInfo.Compare( namedIndex, n, compareOptions ) == 0 )
+					if( namedIndex.NameBasedOnConfiguration.Equals(n, compareOptions))
 					{
 						name = pair.Key;
+					    break;
 					}
 				}
 			}
@@ -1209,7 +1205,7 @@ namespace CsvHelper
 					// named index isn't found, throw an exception.
 					var namesJoined = string.Format( "'{0}'", string.Join( "', '", names ) );
 					var ex = new CsvMissingFieldException( string.Format( "Fields {0} do not exist in the CSV file.", namesJoined ) );
-					ExceptionHelper.AddExceptionDataMessage( ex, Parser, null, namedIndexes, currentIndex, currentRecord );
+                    ExceptionHelper.AddExceptionDataMessage(ex, Parser, null, namedIndexes.ToDictionary(x => x.Key.NameBasedOnConfiguration, y => y.Value), currentIndex, currentRecord);
 					throw ex;
 				}
 
@@ -1218,6 +1214,42 @@ namespace CsvHelper
 
 			return namedIndexes[name][index];
 		}
+
+	    private class Header
+	    {
+	        public Header(CsvConfiguration configuration, string name)
+	        {
+	            NameBasedOnConfiguration = name;
+                if( configuration.IgnoreHeaderWhiteSpace )
+				{
+					NameBasedOnConfiguration = Regex.Replace( NameBasedOnConfiguration, "\\s", string.Empty );
+				}
+                else if( configuration.TrimHeaders && NameBasedOnConfiguration != null )
+				{
+                    NameBasedOnConfiguration = NameBasedOnConfiguration.Trim();
+				}
+	        }
+
+	        public string NameBasedOnConfiguration { get; private set; }
+
+	        private bool Equals(Header other)
+	        {
+	            return string.Equals(NameBasedOnConfiguration, other.NameBasedOnConfiguration, StringComparison.Ordinal);
+	        }
+
+	        public override bool Equals(object obj)
+	        {
+	            if (ReferenceEquals(null, obj)) return false;
+	            if (ReferenceEquals(this, obj)) return true;
+	            if (obj.GetType() != this.GetType()) return false;
+	            return Equals((Header) obj);
+	        }
+
+	        public override int GetHashCode()
+	        {
+	            return (NameBasedOnConfiguration != null ? NameBasedOnConfiguration.GetHashCode() : 0);
+	        }
+	    }
 
 		/// <summary>
 		/// Parses the named indexes from the header record.
@@ -1237,13 +1269,14 @@ namespace CsvHelper
 					name = name.ToLower();
 				}
 
-				if( namedIndexes.ContainsKey( name ) )
+			    var header = new Header(configuration, name);
+				if( namedIndexes.ContainsKey( header ) )
 				{
-					namedIndexes[name].Add( i );
+					namedIndexes[header].Add( i );
 				}
 				else
 				{
-					namedIndexes[name] = new List<int> { i };
+					namedIndexes[header] = new List<int> { i };
 				}
 			}
 		}
